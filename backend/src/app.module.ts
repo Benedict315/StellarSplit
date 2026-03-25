@@ -43,6 +43,7 @@ import { UploadModule } from "./uploads/upload.module";
 import { ProfileModule } from "./profile/profile.module";
 import { InvitationsModule } from "./invitations/invitations.module";
 import { CommonModule } from "./common/common.module";
+import { DebtSimplificationModule } from "./debt-simplification/debt-simplification.module";
 // Load environment variables
 dotenv.config({
   path: path.resolve(__dirname, '../.env'),
@@ -124,6 +125,7 @@ dotenv.config({
     ProfileModule,
     InvitationsModule,
     CommonModule,
+    DebtSimplificationModule,
   ],
 })
 export class AppModule { }

@@ -25,7 +25,10 @@ import {
 } from "./dto/dispute.dto";
 import { DisputesController } from "./disputes.controller";
 import { DisputesModule } from "./disputes.module";
+import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
+import { AuthorizationGuard } from "../auth/guards/authorization.guard";
 import { DisputeStatus, DisputeType } from "../entities/dispute.entity";
+import { AuthorizationService } from "../auth/services/authorization.service";
 
 describe("Dispute Resolution System - Integration Tests", () => {
   let app: INestApplication;
@@ -89,7 +92,32 @@ describe("Dispute Resolution System - Integration Tests", () => {
         EventEmitterModule.forRoot(),
         DisputesModule,
       ],
-    }).compile();
+      providers: [
+        {
+          provide: AuthorizationService,
+          useValue: {
+            canAccessSplit: jest.fn().mockResolvedValue(true),
+            canCreatePayment: jest.fn().mockResolvedValue(true),
+            canAddParticipant: jest.fn().mockResolvedValue(true),
+            canRemoveParticipant: jest.fn().mockResolvedValue(true),
+            canCreatePaymentForParticipant: jest.fn().mockResolvedValue(true),
+            canAccessParticipantPayments: jest.fn().mockResolvedValue(true),
+            canAccessReceipt: jest.fn().mockResolvedValue(true),
+            canAccessDispute: jest.fn().mockResolvedValue(true),
+            isAdmin: jest.fn().mockResolvedValue(false),
+            canAccessGroup: jest.fn().mockResolvedValue(true),
+            canManageGroupMembers: jest.fn().mockResolvedValue(true),
+            canCreateGroupSplit: jest.fn().mockResolvedValue(true),
+            filterAccessibleSplits: jest.fn().mockResolvedValue([]),
+          },
+        },
+      ],
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .overrideGuard(AuthorizationGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     app = module.createNestApplication();
     await app.init();
@@ -117,8 +145,7 @@ describe("Dispute Resolution System - Integration Tests", () => {
           {
             splitId: sharedSplitId,
             disputeType: DisputeType.INCORRECT_AMOUNT,
-            description:
-              "The amount charged does not match the itemized list",
+            description: "The amount charged does not match the itemized list",
           },
           FileDisputeDto,
         ),
@@ -224,7 +251,9 @@ describe("Dispute Resolution System - Integration Tests", () => {
 
   describe("State Machine Validation", () => {
     it("should reject invalid state transitions", async () => {
-      const split = await createSplit({ description: "State machine test split" });
+      const split = await createSplit({
+        description: "State machine test split",
+      });
 
       const dispute = await controller.fileDispute(
         await validateBody(
@@ -275,7 +304,9 @@ describe("Dispute Resolution System - Integration Tests", () => {
     });
 
     it("should reject missing required fields", async () => {
-      const split = await createSplit({ description: "Missing fields test split" });
+      const split = await createSplit({
+        description: "Missing fields test split",
+      });
 
       await expect(
         validateBody(
@@ -292,7 +323,9 @@ describe("Dispute Resolution System - Integration Tests", () => {
     let adminTestDisputeId: string;
 
     it("should request more evidence", async () => {
-      const split = await createSplit({ description: "Admin operations split" });
+      const split = await createSplit({
+        description: "Admin operations split",
+      });
 
       const dispute = await controller.fileDispute(
         await validateBody(
@@ -368,7 +401,9 @@ describe("Dispute Resolution System - Integration Tests", () => {
       });
 
       expect(
-        response.disputes.every((dispute) => dispute.status === DisputeStatus.RESOLVED),
+        response.disputes.every(
+          (dispute) => dispute.status === DisputeStatus.RESOLVED,
+        ),
       ).toBe(true);
     });
 

@@ -45,11 +45,7 @@ import { StellarModule } from "./stellar/stellar.module";
 import { TemplatesModule } from "./templates/templates.module";
 import { UploadModule } from "./uploads/upload.module";
 import { WebhooksModule } from "./webhooks/webhooks.module";
-import { InvitationsModule } from "./invitations/invitations.module";
-import { CommonModule } from "./common/common.module";
-import { DebtSimplificationModule } from "./debt-simplification/debt-simplification.module";
-import { OcrModule } from "./ocr/ocr.module";
-import { DashboardModule } from "./dashboard/dashboard.module";
+// Duplicate imports removed; already imported above.
 // Load environment variables
 dotenv.config({
   path: path.resolve(__dirname, "../.env"),
@@ -129,11 +125,7 @@ dotenv.config({
     SchedulerModule,
     UploadModule,
     ProfileModule,
-    InvitationsModule,
-    OcrModule,
-    CommonModule,
-    DebtSimplificationModule,
-    DashboardModule,
+    // Duplicated modules were already included earlier.
   ],
 })
 export class AppModule {}

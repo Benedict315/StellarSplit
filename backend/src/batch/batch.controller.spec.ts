@@ -1,7 +1,11 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { BatchController } from "./batch.controller";
 import { BatchService } from "./batch.service";
-import { CreateBatchSplitsDto, CreateBatchPaymentsDto } from "./dto/create-batch.dto";
+import { AuthorizationService } from "../auth/services/authorization.service";
+import {
+  CreateBatchSplitsDto,
+  CreateBatchPaymentsDto,
+} from "./dto/create-batch.dto";
 import { BatchStatusDto } from "./dto/batch-status.dto";
 import { BatchJobStatus, BatchJobType } from "./entities/batch-job.entity";
 
@@ -24,6 +28,24 @@ describe("BatchController", () => {
         {
           provide: BatchService,
           useValue: mockBatchService,
+        },
+        {
+          provide: AuthorizationService,
+          useValue: {
+            canAccessSplit: jest.fn().mockResolvedValue(true),
+            canCreatePayment: jest.fn().mockResolvedValue(true),
+            canAddParticipant: jest.fn().mockResolvedValue(true),
+            canRemoveParticipant: jest.fn().mockResolvedValue(true),
+            canCreatePaymentForParticipant: jest.fn().mockResolvedValue(true),
+            canAccessParticipantPayments: jest.fn().mockResolvedValue(true),
+            canAccessReceipt: jest.fn().mockResolvedValue(true),
+            canAccessDispute: jest.fn().mockResolvedValue(true),
+            isAdmin: jest.fn().mockResolvedValue(false),
+            canAccessGroup: jest.fn().mockResolvedValue(true),
+            canManageGroupMembers: jest.fn().mockResolvedValue(true),
+            canCreateGroupSplit: jest.fn().mockResolvedValue(true),
+            filterAccessibleSplits: jest.fn().mockResolvedValue([]),
+          },
         },
       ],
     }).compile();
@@ -152,7 +174,10 @@ describe("BatchController", () => {
       const result = await controller.retryBatch("batch-1", body);
 
       expect(result).toEqual(expectedResult);
-      expect(service.retryFailedOperations).toHaveBeenCalledWith("batch-1", body.operationIds);
+      expect(service.retryFailedOperations).toHaveBeenCalledWith(
+        "batch-1",
+        body.operationIds,
+      );
     });
 
     it("should retry all failed operations if no ids provided", async () => {
@@ -176,7 +201,10 @@ describe("BatchController", () => {
       const result = await controller.retryBatch("batch-1", body);
 
       expect(result).toEqual(expectedResult);
-      expect(service.retryFailedOperations).toHaveBeenCalledWith("batch-1", undefined);
+      expect(service.retryFailedOperations).toHaveBeenCalledWith(
+        "batch-1",
+        undefined,
+      );
     });
   });
 

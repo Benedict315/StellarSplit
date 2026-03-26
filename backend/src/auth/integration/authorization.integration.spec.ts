@@ -339,6 +339,8 @@ describe("Authorization Integration Tests", () => {
           body: {},
         }),
       }),
-    } as ExecutionContext;
+      getHandler: () => () => null,
+      getClass: () => () => null,
+    } as unknown as ExecutionContext;
   }
 });

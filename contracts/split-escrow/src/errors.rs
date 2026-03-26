@@ -15,4 +15,7 @@ pub enum Error {
     ParticipantCapExceeded = 10,
     InvalidInput = 11,
     EscrowNotActive = 12,
+    InvalidMetadata = 13,
+    SplitNotActive = 14,
+    InvalidVersion = 15,
 }

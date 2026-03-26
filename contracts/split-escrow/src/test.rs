@@ -3,7 +3,7 @@
 use crate::{SplitEscrowContract, SplitEscrowContractClient, SplitStatus};
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient as TokenAdminClient};
 use soroban_sdk::{
-    testutils::Address as _, testutils::Events as _, Address, Env, Map, String,
+    testutils::Address as _, testutils::Events as _, Address, Env, IntoVal, Map, String, Vec,
 };
 
 fn metadata_map(env: &Env, entries: &[(&str, &str)]) -> Map<String, String> {
@@ -61,13 +61,15 @@ fn test_fee_deducted_and_sent_to_treasury_on_release() {
     client.set_treasury(&treasury);
     client.set_fee(&250u32); // 2.5%
 
-    let split_id = client.create_escrow(
-        &creator,
-        &String::from_str(&env, "Dinner"),
-        &10_000,
-        &None,
-        &None,
-    );
+        let split_id = client.create_escrow(
+            &creator,
+            &String::from_str(&env, "Dinner"),
+            &10_000,
+            &Map::new(&env),
+            &None,
+           &false,
+            &None,
+        );
     client.deposit(&split_id, &participant, &10_000);
     client.release_funds(&split_id);
 
@@ -88,8 +90,15 @@ fn test_admin_can_update_fee_and_treasury() {
     client.set_treasury(&treasury_a);
     client.set_fee(&100u32);
 
-    let split_a =
-        client.create_escrow(&creator, &String::from_str(&env, "A"), &1_000, &None, &None);
+        let split_a = client.create_escrow(
+            &creator,
+            &String::from_str(&env, "A"),
+            &1_000,
+            &Map::new(&env),
+            &None,
+           &false,
+            &None,
+        );
     client.deposit(&split_a, &participant, &1_000);
     client.release_funds(&split_a);
     assert_eq!(token_client.balance(&treasury_a), 10);
@@ -98,8 +107,15 @@ fn test_admin_can_update_fee_and_treasury() {
     client.set_treasury(&treasury_b);
     client.set_fee(&300u32);
 
-    let split_b =
-        client.create_escrow(&creator, &String::from_str(&env, "B"), &2_000, &None, &None);
+        let split_b = client.create_escrow(
+            &creator,
+            &String::from_str(&env, "B"),
+            &2_000,
+            &Map::new(&env),
+            &None,
+           &false,
+            &None,
+        );
     client.deposit(&split_b, &participant, &2_000);
     client.release_funds(&split_b);
     assert_eq!(token_client.balance(&treasury_b), 60);
@@ -129,7 +145,9 @@ fn test_fees_collected_event_emitted() {
         &creator,
         &String::from_str(&env, "Event"),
         &1_000,
+        &Map::new(&env),
         &None,
+        &false,
         &None,
     );
     client.deposit(&split_id, &participant, &1_000);
@@ -154,19 +172,21 @@ fn test_upgrade_version_admin() {
 }
 
 #[test]
-#[should_panic(expected = "HostError: Error(Contract, #3)")] // Unauthorized
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")] // Unauthorized
 fn test_upgrade_version_non_admin_fails() {
     let (env, client, _, creator, _, _, _) = setup();
 
-    env.mock_all_auths_providing_64bit_allowance(); // Reset mocks to require specific auth
+    env.mock_all_auths(); // Reset mocks to require specific auth
 
     // Switch to creator auth
-    client.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+    let mut args = Vec::new(&env);
+    args.push_back(String::from_str(&env, "1.1.0").into_val(&env));
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
         address: &creator,
         invoke: &soroban_sdk::testutils::MockAuthInvoke {
             contract: &client.address,
-            function: "upgrade_version",
-            args: (String::from_str(&env, "1.1.0"),).into_val(&env),
+            fn_name: "upgrade_version",
+            args,
             sub_invokes: &[],
         },
     }]);
@@ -175,14 +195,14 @@ fn test_upgrade_version_non_admin_fails() {
 }
 
 #[test]
-#[should_panic(expected = "HostError: Error(Contract, #11)")] // InvalidVersion
+#[should_panic(expected = "HostError: Error(Contract, #15)")] // InvalidVersion
 fn test_upgrade_version_invalid_semver_fails() {
     let (env, client, _, _, _, _, _) = setup();
     client.upgrade_version(&String::from_str(&env, "1.0"));
 }
 
 #[test]
-#[should_panic(expected = "HostError: Error(Contract, #11)")] // InvalidVersion
+#[should_panic(expected = "HostError: Error(Contract, #15)")] // InvalidVersion
 fn test_initialize_invalid_version_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -214,8 +234,10 @@ fn test_default_max_participants_is_50() {
         &creator,
         &String::from_str(&env, "Cap default"),
         &100,
-        &None,
-        &None,
+           &Map::new(&env),
+           &None,
+           &false,
+           &None,
     );
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.max_participants, 50);
@@ -232,8 +254,10 @@ fn test_explicit_max_participants_stored_in_get_escrow() {
         &creator,
         &String::from_str(&env, "Explicit cap"),
         &300,
-        &Some(cap),
-        &None,
+           &Map::new(&env),
+           &Some(cap),
+           &false,
+           &None,
     );
     let escrow = client.get_escrow(&escrow_id);
     assert_eq!(escrow.max_participants, cap);
@@ -254,8 +278,10 @@ fn test_deposit_rejected_when_participant_cap_exceeded() {
         &creator,
         &String::from_str(&env, "Two max"),
         &3_000,
-        &Some(2u32),
-        &None,
+           &Map::new(&env),
+           &Some(2u32),
+           &false,
+           &None,
     );
 
     client.deposit(&escrow_id, &p1, &1_000);
@@ -280,8 +306,10 @@ fn test_existing_participant_can_deposit_again_without_increasing_count() {
         &creator,
         &String::from_str(&env, "Repeat"),
         &2_000,
-        &Some(1u32),
-        &None,
+           &Map::new(&env),
+           &Some(1u32),
+           &false,
+           &None,
     );
     client.deposit(&escrow_id, &p1, &1_000);
     client.deposit(&escrow_id, &p1, &1_000);
@@ -296,13 +324,15 @@ fn test_existing_participant_can_deposit_again_without_increasing_count() {
 fn test_note_stored_on_create_and_get_note() {
     let (env, client, _admin, creator, _p, _tc, _ta) = setup();
     let text = "Dinner at Luigi's — Friday night";
-    let split_id = client.create_escrow(
-        &creator,
-        &String::from_str(&env, "Bill"),
-        &100,
-        &None,
-        &Some(String::from_str(&env, text)),
-    );
+        let split_id = client.create_escrow(
+            &creator,
+            &String::from_str(&env, "Bill"),
+            &100,
+            &Map::new(&env),
+            &None,
+            &false,
+            &Some(String::from_str(&env, text)),
+        );
     assert_eq!(client.get_note(&split_id), String::from_str(&env, text));
     assert_eq!(
         client.get_escrow(&split_id).note,
@@ -315,8 +345,15 @@ fn test_creator_can_update_note_while_pending_and_ready() {
     let (env, client, _admin, creator, p1, _tc, _ta) = setup();
     client.set_treasury(&Address::generate(&env));
 
-    let split_id =
-        client.create_escrow(&creator, &String::from_str(&env, "X"), &2_000, &None, &None);
+        let split_id = client.create_escrow(
+            &creator,
+            &String::from_str(&env, "X"),
+            &2_000,
+            &Map::new(&env),
+            &None,
+            &false,
+            &None,
+        );
     client.set_note(&split_id, &String::from_str(&env, "v1"));
     assert_eq!(client.get_note(&split_id), String::from_str(&env, "v1"));
 
@@ -344,13 +381,22 @@ fn test_note_over_128_bytes_rejected_on_create_and_set() {
         &creator,
         &String::from_str(&env, "x"),
         &100,
+        &Map::new(&env),
         &None,
+        &false,
         &Some(long.clone()),
     );
     assert!(res.is_err());
 
-    let split_id =
-        client.create_escrow(&creator, &String::from_str(&env, "ok"), &100, &None, &None);
+    let split_id = client.create_escrow(
+        &creator,
+        &String::from_str(&env, "ok"),
+        &100,
+        &Map::new(&env),
+        &None,
+        &false,
+        &None,
+    );
     let res2 = client.try_set_note(&split_id, &long);
     assert!(res2.is_err());
 }
@@ -358,8 +404,48 @@ fn test_note_over_128_bytes_rejected_on_create_and_set() {
 #[test]
 fn test_note_updated_emits_event() {
     let (env, client, _admin, creator, _p, _tc, _ta) = setup();
-    let split_id = client.create_escrow(&creator, &String::from_str(&env, "E"), &100, &None, &None);
+    let split_id = client.create_escrow(
+        &creator,
+        &String::from_str(&env, "E"),
+        &100,
+        &Map::new(&env),
+        &None,
+        &false,
+        &None,
+    );
     let before = env.events().all().len();
     client.set_note(&split_id, &String::from_str(&env, "hello"));
     assert!(env.events().all().len() > before);
+}
+
+#[test]
+fn test_cancel_split() {
+    let (env, client, _admin, creator, participant, _tc, token_admin) = setup();
+    let split_id = client.create_escrow(
+        &creator,
+        &String::from_str(&env, "Cancel test"),
+        &100,
+        &Map::new(&env),
+        &None,
+        &false,
+        &None,
+    );
+    client.cancel_split(&split_id);
+
+    let escrow = client.get_escrow(&split_id);
+    assert_eq!(escrow.status, SplitStatus::Cancelled);
+
+    let res = client.try_deposit(&split_id, &participant, &100);
+    assert!(res.is_err());
+
+    let res = client.try_release_funds(&split_id);
+    assert!(res.is_err());
+
+    let res = client.try_set_note(&split_id, &String::from_str(&env, "denied"));
+    assert!(res.is_err());
+
+    let after = env.events().all().len();
+    assert!(after > 0);
+
+    let _ = token_admin;
 }

@@ -14,6 +14,8 @@ pub use crate::types::{Split, SplitStatus};
 
 const DEFAULT_MAX_PARTICIPANTS: u32 = 50;
 const MAX_NOTE_LEN: u32 = 128;
+const MAX_METADATA_ENTRIES: u32 = 32;
+const MAX_METADATA_STRING_LEN: u32 = 128;
 
 fn validate_note_len(note: &String) -> Result<(), Error> {
     if note.len() > MAX_NOTE_LEN {
@@ -53,7 +55,7 @@ fn validate_metadata(metadata: &Map<String, String>) -> Result<(), Error> {
 }
 
 fn is_active(status: &SplitStatus) -> bool {
-    *status != SplitStatus::Released
+    *status != SplitStatus::Released && *status != SplitStatus::Cancelled
 }
 
 #[contract]
@@ -99,13 +101,15 @@ impl SplitEscrowContract {
     }
 
     /// Create an escrow split. If `max_participants` is `None`, the cap defaults to 50.
-    /// Optional `note` is stored on-chain (max 128 bytes); use `None` for no note.
+    /// `metadata` is fully optional but must be valid per constraints. If `note` is `None`, note is empty.
     pub fn create_escrow(
         env: Env,
         creator: Address,
         description: String,
         total_amount: i128,
+        metadata: Map<String, String>,
         max_participants: Option<u32>,
+        whitelist_enabled: bool,
         note: Option<String>,
     ) -> Result<u64, Error> {
         if !storage::has_admin(&env) {
@@ -120,6 +124,8 @@ impl SplitEscrowContract {
         if cap == 0 {
             return Err(Error::InvalidAmount);
         }
+
+        validate_metadata(&metadata)?;
 
         let note_stored = match note {
             Some(n) => {
@@ -155,7 +161,7 @@ impl SplitEscrowContract {
         validate_note_len(&note)?;
         let mut split = storage::get_split(&env, split_id).ok_or(Error::SplitNotFound)?;
         split.creator.require_auth();
-        if split.status == SplitStatus::Released {
+        if !is_active(&split.status) {
             return Err(Error::EscrowNotActive);
         }
         if split.note == note {
@@ -164,6 +170,20 @@ impl SplitEscrowContract {
         split.note = note.clone();
         storage::set_split(&env, &split);
         events::emit_note_updated(&env, split_id, &note);
+        Ok(())
+    }
+
+    pub fn cancel_split(env: Env, split_id: u64) -> Result<(), Error> {
+        let mut split = storage::get_split(&env, split_id).ok_or(Error::SplitNotFound)?;
+        split.creator.require_auth();
+
+        if split.status == SplitStatus::Released || split.status == SplitStatus::Cancelled {
+            return Err(Error::EscrowNotActive);
+        }
+
+        split.status = SplitStatus::Cancelled;
+        storage::set_split(&env, &split);
+        events::emit_cancelled(&env, split_id);
         Ok(())
     }
 

@@ -19,7 +19,6 @@ pub fn emit_template_created(
 }
 
 /// Emit an event when a template is used to create a split.
-pub fn emit_template_used(env: &Env, template_id: String, split_id: String) {
-    env.events()
-        .publish((Symbol::new(env, "template_used"), template_id), split_id);
+pub fn emit_template_used(env: &Env, template_id: String, split_id: u64) {
+    env.events().publish((Symbol::new(env, "template_used"), template_id), split_id);
 }

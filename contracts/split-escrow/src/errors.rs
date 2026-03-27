@@ -13,9 +13,11 @@ pub enum Error {
     SplitNotReady = 8,
     TreasuryNotSet = 9,
     ParticipantCapExceeded = 10,
-    InvalidInput = 11,
-    EscrowNotActive = 12,
-    InvalidMetadata = 13,
+    // Money-critical/upgrade failures are asserted by numeric code in tests.
+    InvalidVersion = 11,
+    InvalidInput = 12,
+    EscrowNotActive = 13,
+    /// Split is already finalized (released or cancelled) or otherwise not active.
     SplitNotActive = 14,
-    InvalidVersion = 15,
+    InvalidMetadata = 15,
 }

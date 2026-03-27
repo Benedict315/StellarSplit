@@ -8,21 +8,36 @@ mod types;
 mod test;
 
 use errors::Error;
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, String};
-use types::{DataKey, Dispute, DisputeResult, DisputeStatus};
+use soroban_sdk::{contract, contractimpl, vec, Address, Bytes, Env, IntoVal, String, Symbol, Val};
+use types::{Dispute, DisputeResult, DisputeStatus};
 
 const VOTING_PERIOD: u64 = 604_800; // 7 days in seconds
 
+const MAX_SPLIT_ID_BYTES: usize = 64;
+
 fn generate_dispute_id(env: &Env, split_id: &String) -> String {
+    let split_len = split_id.len() as usize;
+    // Dispute IDs include split_id bytes; keep it bounded to avoid
+    // allocating unbounded buffers in `no_std`.
+    assert!(split_len <= MAX_SPLIT_ID_BYTES);
+
+    // Convert Soroban `String` into a `Bytes` blob for hashing.
+    let mut split_buf = [0u8; MAX_SPLIT_ID_BYTES];
+    split_id.copy_into_slice(&mut split_buf[..split_len]);
+    let split_bytes = Bytes::from_slice(env, &split_buf[..split_len]);
+
     let mut input = Bytes::new(env);
-    input.append(&split_id.to_bytes());
+    input.append(&split_bytes);
     let seq = env.ledger().sequence().to_be_bytes();
     input.append(&Bytes::from_slice(env, &seq));
     let hash = env.crypto().sha256(&input);
     let hash_bytes = &hash.to_array()[..8];
-    let mut id_bytes = String::from_str(env, "dis_").to_bytes();
+    let mut id_bytes = Bytes::from_slice(env, b"dis_");
     id_bytes.append(&Bytes::from_slice(env, hash_bytes));
-    String::from_bytes(env, &id_bytes)
+
+    // `String::from_bytes` expects a byte slice; convert via a fixed buffer.
+    let id_buf = id_bytes.to_buffer::<32>();
+    String::from_bytes(env, id_buf.as_slice())
 }
 
 #[contract]
@@ -36,6 +51,8 @@ impl DisputeContract {
         split_id: String,
         raiser: Address,
         reason: String,
+        escrow_contract: Address,
+        escrow_split_id: u64,
     ) -> Result<String, Error> {
         raiser.require_auth();
 
@@ -58,6 +75,8 @@ impl DisputeContract {
             created_at: now,
             voting_ends_at: now + VOTING_PERIOD,
             result: None,
+            escrow_contract,
+            escrow_split_id,
         };
 
         storage::save_dispute(&env, &dispute);
@@ -109,7 +128,11 @@ impl DisputeContract {
     }
 
     /// Resolve a dispute after voting period ends.
-    pub fn resolve_dispute(env: Env, dispute_id: String) -> Result<DisputeResult, Error> {
+    pub fn resolve_dispute(
+        env: Env,
+        dispute_id: String,
+        resolver: Address,
+    ) -> Result<DisputeResult, Error> {
         let mut dispute = storage::get_dispute(&env, &dispute_id)?;
 
         if dispute.status != DisputeStatus::Voting {
@@ -132,15 +155,41 @@ impl DisputeContract {
             DisputeResult::Tied
         };
 
+        // Auth boundary: only the escrow creator (owner) is allowed to finalize the escrow action.
+        resolver.require_auth();
+
+        let get_creator_sym = Symbol::new(&env, "get_creator");
+        let get_creator_args: soroban_sdk::Vec<Val> =
+            vec![&env, dispute.escrow_split_id.into_val(&env)];
+        let escrow_creator: Address =
+            env.invoke_contract(&dispute.escrow_contract, &get_creator_sym, get_creator_args);
+
+        if resolver != escrow_creator {
+            return Err(Error::UnauthorizedResolver);
+        }
+
+        // Drive the next step in the payment lifecycle by updating escrow settlement state.
+        // Upheld => dispute is valid => cancel/undo the escrow.
+        // Dismissed/Tied => dispute is invalid or tie => continue settlement by releasing funds.
+        if result == DisputeResult::UpheldForRaiser {
+            let reverse_sym = Symbol::new(&env, "reverse_split");
+            let reverse_args: soroban_sdk::Vec<Val> =
+                vec![&env, dispute.escrow_split_id.into_val(&env)];
+            env.invoke_contract::<()>(&dispute.escrow_contract, &reverse_sym, reverse_args);
+        } else {
+            let release_sym = Symbol::new(&env, "release_funds");
+            let release_args: soroban_sdk::Vec<Val> =
+                vec![&env, dispute.escrow_split_id.into_val(&env)];
+            env.invoke_contract::<()>(&dispute.escrow_contract, &release_sym, release_args);
+        }
+
         dispute.status = DisputeStatus::Resolved;
-        dispute.result = Some(result.clone());
-
+        dispute.result = Some(match result {
+            DisputeResult::UpheldForRaiser => 0u32,
+            DisputeResult::DismissedForRaiser => 1u32,
+            DisputeResult::Tied => 2u32,
+        });
         storage::save_dispute(&env, &dispute);
-
-        // TODO: trigger payout logic based on result
-        // if result == DisputeResult::UpheldForRaiser {
-        //     split_client.reverse_split(&dispute.split_id);
-        // }
 
         Ok(result)
     }

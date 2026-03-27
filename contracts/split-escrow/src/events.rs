@@ -6,6 +6,13 @@ pub fn emit_initialized(env: &Env, admin: &Address) {
     env.events().publish(("init", "admin"), admin.clone());
 }
 
+pub fn emit_contract_upgraded(env: &Env, old_version: String, new_version: String) {
+    env.events().publish(
+        ("upgraded", "old_version", "new_version"),
+        (old_version, new_version),
+    );
+}
+
 pub fn emit_split_created(env: &Env, split: &Split) {
     env.events().publish(
         ("created", "split_id", "creator"),
@@ -25,6 +32,11 @@ pub fn emit_released(env: &Env, split_id: u64, released_amount: i128) {
         .publish(("released", "split_id"), (split_id, released_amount));
 }
 
+pub fn emit_cancelled(env: &Env, split_id: u64) {
+    env.events()
+        .publish(("cancelled", "split_id"), split_id);
+}
+
 pub fn emit_fees_collected(env: &Env, amount: i128, treasury: &Address) {
     env.events().publish(
         (Symbol::new(env, "FeesCollected"),),
@@ -37,10 +49,3 @@ pub fn emit_note_updated(env: &Env, split_id: u64, note: &String) {
         .publish(("NoteUpdated", "split_id"), (split_id, note.clone()));
 }
 
-pub fn emit_cancelled(env: &Env, split_id: u64) {
-    env.events().publish(("cancelled", "split_id"), (split_id,));
-}
-
-pub fn emit_contract_upgraded(env: &Env, old_version: String, new_version: String) {
-    env.events().publish(("upgraded", "old_version", "new_version"), (old_version, new_version));
-}

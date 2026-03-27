@@ -1,4 +1,5 @@
 #![cfg(test)]
+extern crate std;
 
 use crate::{SplitEscrowContract, SplitEscrowContractClient, SplitStatus};
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient as TokenAdminClient};
@@ -165,28 +166,27 @@ fn test_version_stored_on_init() {
 
 #[test]
 fn test_upgrade_version_admin() {
-    let (env, client, admin, _, _, _, _) = setup();
+    let (env, client, _admin, _, _, _, _) = setup();
 
     client.upgrade_version(&String::from_str(&env, "1.1.0"));
     assert_eq!(client.get_version(), String::from_str(&env, "1.1.0"));
 }
 
 #[test]
-#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")] // Unauthorized
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")] // Missing admin auth
 fn test_upgrade_version_non_admin_fails() {
     let (env, client, _, creator, _, _, _) = setup();
 
-    env.mock_all_auths(); // Reset mocks to require specific auth
+    // Disable blanket auth mocking so we can assert on authorization failures.
+    env.set_auths(&[]);
 
-    // Switch to creator auth
-    let mut args = Vec::new(&env);
-    args.push_back(String::from_str(&env, "1.1.0").into_val(&env));
-    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+    // Switch to creator auth only — upgrade_version requires admin auth and must fail.
+    client.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
         address: &creator,
         invoke: &soroban_sdk::testutils::MockAuthInvoke {
             contract: &client.address,
             fn_name: "upgrade_version",
-            args,
+            args: (String::from_str(&env, "1.1.0"),).into_val(&env),
             sub_invokes: &[],
         },
     }]);
@@ -195,14 +195,14 @@ fn test_upgrade_version_non_admin_fails() {
 }
 
 #[test]
-#[should_panic(expected = "HostError: Error(Contract, #15)")] // InvalidVersion
+#[should_panic(expected = "HostError: Error(Contract, #11)")] // InvalidVersion
 fn test_upgrade_version_invalid_semver_fails() {
     let (env, client, _, _, _, _, _) = setup();
     client.upgrade_version(&String::from_str(&env, "1.0"));
 }
 
 #[test]
-#[should_panic(expected = "HostError: Error(Contract, #15)")] // InvalidVersion
+#[should_panic(expected = "HostError: Error(Contract, #11)")] // InvalidVersion
 fn test_initialize_invalid_version_fails() {
     let env = Env::default();
     env.mock_all_auths();

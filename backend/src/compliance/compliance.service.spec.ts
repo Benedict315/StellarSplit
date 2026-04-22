@@ -5,17 +5,21 @@ import { ComplianceService } from './compliance.service';
 import { TaxExportRequest, ExportStatus } from './entities/tax-export-request.entity';
 import { ExpenseCategory } from './entities/expense-category.entity';
 import { Split } from '../entities/split.entity';
-import { BullModule } from '@nestjs/bull';
+import { getQueueToken } from '@nestjs/bull';
 
 describe('ComplianceService', () => {
   let service: ComplianceService;
   let exportRepo: Repository<TaxExportRequest>;
   let categoryRepo: Repository<ExpenseCategory>;
   let splitRepo: Repository<Split>;
+  let exportQueue: { add: jest.Mock };
 
   beforeEach(async () => {
+    exportQueue = {
+      add: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
-      imports: [BullModule.registerQueue({ name: 'compliance-export' })],
       providers: [
         ComplianceService,
         {
@@ -29,6 +33,10 @@ describe('ComplianceService', () => {
         {
           provide: getRepositoryToken(Split),
           useClass: Repository,
+        },
+        {
+          provide: getQueueToken('compliance-export'),
+          useValue: exportQueue,
         },
       ],
     }).compile();
@@ -63,6 +71,9 @@ describe('ComplianceService', () => {
       });
 
       expect(result.status).toBe(ExportStatus.QUEUED);
+      expect(exportQueue.add).toHaveBeenCalledWith('generate-export', {
+        requestId: mockRequest.id,
+      });
     });
   });
 

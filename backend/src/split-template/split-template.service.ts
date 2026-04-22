@@ -147,7 +147,7 @@ export class SplitTemplateService {
         const round2 = (v: number) => Math.round(v * 100) / 100;
 
         // First pass: compute weights.
-        let weights: number[] = [];
+        let weights: number[];
 
         if (hasExplicitAmounts) {
             weights = list.map((p) => Number(p.amountOwed ?? 0));
@@ -171,7 +171,11 @@ export class SplitTemplateService {
             const validWeights = weights.filter((w) => !Number.isNaN(w));
             const sumShares = validWeights.reduce((s, w) => s + w, 0);
             if (sumShares > 0) {
-                weights = list.map((w) => (!Number.isNaN(w) ? (w / sumShares) * totalAmount : 0));
+                weights = weights.map((weight) =>
+                    !Number.isNaN(weight)
+                        ? (weight / sumShares) * totalAmount
+                        : 0,
+                );
             } else {
                 weights = list.map(() => round2(totalAmount / list.length));
             }

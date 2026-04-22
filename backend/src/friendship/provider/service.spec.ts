@@ -4,9 +4,6 @@ import { Repository } from 'typeorm';
 
 import { FriendshipService } from '../provider/service';
 import { Friendship } from '../friendship.entity';
-import { describe, beforeEach, it } from 'node:test';
-
-/// <reference types="jest" />
 
 
 describe('FriendshipService', () => {

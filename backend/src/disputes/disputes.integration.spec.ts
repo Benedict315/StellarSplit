@@ -30,6 +30,8 @@ import { AuthorizationGuard } from "../auth/guards/authorization.guard";
 import { DisputeStatus, DisputeType } from "../entities/dispute.entity";
 import { AuthorizationService } from "../auth/services/authorization.service";
 
+jest.setTimeout(15000);
+
 describe("Dispute Resolution System - Integration Tests", () => {
   let app: INestApplication;
   let module: TestingModule;

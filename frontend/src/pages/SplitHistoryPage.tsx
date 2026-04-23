@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SplitTimeline } from "../components/SplitHistory/SplitTimeline";
 import {
   HistoryFilters,
@@ -167,6 +168,7 @@ function escapeCsv(value: string): string {
 }
 
 export default function SplitHistoryPage() {
+  const { t } = useTranslation();
   const { splits, loading } = useSplitHistory();
   const [filters, setFilters] = useState<FiltersState>({
     statuses: new Set<SplitStatus>(["active", "completed", "cancelled"]),
@@ -186,11 +188,20 @@ export default function SplitHistoryPage() {
     const search = filters.search.trim().toLowerCase();
     const bySearch = !search
       ? byRole
-      : byRole.filter(
-          (s) =>
-            s.title.toLowerCase().includes(search) ||
-            s.participants.some((p) => p.name.toLowerCase().includes(search)),
-        );
+      : byRole.filter((s) => {
+          const selfMatch = (p: (typeof s.participants)[0]) => {
+            if (p.name === "You") {
+              return (
+                t("common.you").toLowerCase().includes(search) ||
+                p.name.toLowerCase().includes(search)
+              );
+            }
+            return p.name.toLowerCase().includes(search);
+          };
+          return (
+            s.title.toLowerCase().includes(search) || s.participants.some(selfMatch)
+          );
+        });
 
     const sorted = [...bySearch].sort((a, b) => {
       switch (filters.sort) {
@@ -210,7 +221,7 @@ export default function SplitHistoryPage() {
     });
 
     return sorted;
-  }, [splits, filters]);
+  }, [splits, filters, t]);
 
   useEffect(() => {
     setPage(1);
@@ -236,13 +247,13 @@ export default function SplitHistoryPage() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pt-6 pb-20 px-4">
       <div className="mx-auto max-w-6xl">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold">Split History</h1>
+          <h1 className="text-2xl font-bold">{t("history.title")}</h1>
           <button
             type="button"
             onClick={() => exportToCSV(filtered)}
             className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium"
           >
-            Export CSV
+            {t("history.exportCsv")}
           </button>
         </div>
 
@@ -255,7 +266,7 @@ export default function SplitHistoryPage() {
             ) : pageItems.length === 0 ? (
               <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-8 text-center">
                 <p className="text-gray-600 dark:text-gray-300">
-                  No splits found
+                  {t("history.noSplits")}
                 </p>
               </div>
             ) : (
@@ -265,7 +276,10 @@ export default function SplitHistoryPage() {
             {/* Pagination */}
             <div className="mt-6 flex items-center justify-between">
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                Showing {pageItems.length} of {filtered.length}
+                {t("history.showing", {
+                  count: pageItems.length,
+                  total: filtered.length,
+                })}
               </p>
               <div className="flex gap-2">
                 <button
@@ -273,17 +287,17 @@ export default function SplitHistoryPage() {
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
                 >
-                  Prev
+                  {t("history.prev")}
                 </button>
                 <span className="text-sm text-gray-700 dark:text-gray-200">
-                  Page {page} / {totalPages}
+                  {t("history.pageN", { current: page, total: totalPages })}
                 </span>
                 <button
                   className="px-3 py-1 rounded-md border border-gray-300 dark:border-gray-700 text-sm disabled:opacity-50"
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
                 >
-                  Next
+                  {t("history.next")}
                 </button>
               </div>
             </div>

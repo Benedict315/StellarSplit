@@ -47,7 +47,7 @@ function notifyIfUpdateAvailable(reg: ServiceWorkerRegistration) {
 }
 
 function attachToInstallingWorker(
-  reg: ServiceWorkerRegistration,
+  _reg: ServiceWorkerRegistration,
   worker: ServiceWorker | null,
 ) {
   if (!worker) return;

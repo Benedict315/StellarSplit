@@ -36,7 +36,6 @@ describe("registerServiceWorker", () => {
   });
 
   it("emits registered and sets ready on success", async () => {
-    const onUpdateFound = vi.fn();
     const mockReg = {
       installing: null,
       waiting: null,
@@ -44,7 +43,7 @@ describe("registerServiceWorker", () => {
         if (ev === "updatefound") (mockReg as { _u?: () => void })._u = fn;
       },
       update: vi.fn().mockResolvedValue(undefined),
-    } as ServiceWorkerRegistration;
+    } as unknown as ServiceWorkerRegistration;
 
     const register = vi.fn().mockResolvedValue(mockReg);
     const addEventListener = vi.fn();

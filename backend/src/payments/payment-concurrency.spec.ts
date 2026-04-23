@@ -1,9 +1,14 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { DataSource, Repository } from "typeorm";
 import { getRepositoryToken } from "@nestjs/typeorm";
+import { getQueueToken } from "@nestjs/bull";
 import { PaymentProcessorService } from "./payment-processor.service";
 import { PaymentReconciliationService } from "./payment-reconciliation.service";
-import { Payment, PaymentSettlementStatus, PaymentProcessingStatus } from "../entities/payment.entity";
+import {
+  Payment,
+  PaymentSettlementStatus,
+  PaymentProcessingStatus,
+} from "../entities/payment.entity";
 import { Participant } from "../entities/participant.entity";
 import { Split } from "../entities/split.entity";
 import { StellarService } from "../stellar/stellar.service";
@@ -80,8 +85,12 @@ describe("PaymentProcessorService Concurrency Tests", () => {
       manager: {
         findOne: jest.fn(),
         find: jest.fn(),
-        create: jest.fn().mockImplementation((entity, data) => ({ ...data, id: "test-id" })),
-        save: jest.fn().mockImplementation((entity, data) => ({ ...data, id: "test-id" })),
+        create: jest
+          .fn()
+          .mockImplementation((entity, data) => ({ ...data, id: "test-id" })),
+        save: jest
+          .fn()
+          .mockImplementation((entity, data) => ({ ...data, id: "test-id" })),
         update: jest.fn().mockResolvedValue({ affected: 1 }),
       },
     };
@@ -143,8 +152,12 @@ describe("PaymentProcessorService Concurrency Tests", () => {
     }).compile();
 
     service = module.get<PaymentProcessorService>(PaymentProcessorService);
-    paymentRepository = module.get<Repository<Payment>>(getRepositoryToken(Payment));
-    participantRepository = module.get<Repository<Participant>>(getRepositoryToken(Participant));
+    paymentRepository = module.get<Repository<Payment>>(
+      getRepositoryToken(Payment),
+    );
+    participantRepository = module.get<Repository<Participant>>(
+      getRepositoryToken(Participant),
+    );
     splitRepository = module.get<Repository<Split>>(getRepositoryToken(Split));
   });
 
@@ -158,7 +171,11 @@ describe("PaymentProcessorService Concurrency Tests", () => {
       const splitId = "split-123";
       const participantId = "participant-456";
       const txHash = "tx-789";
-      const idempotencyKey = service.generateIdempotencyKey(splitId, participantId, txHash);
+      const idempotencyKey = service.generateIdempotencyKey(
+        splitId,
+        participantId,
+        txHash,
+      );
 
       // Mock existing payment found by idempotency key
       mockQueryRunner.manager.findOne.mockResolvedValueOnce({
@@ -188,7 +205,11 @@ describe("PaymentProcessorService Concurrency Tests", () => {
       const splitId = "split-123";
       const participantId = "participant-456";
       const txHash = "tx-789";
-      const idempotencyKey = service.generateIdempotencyKey(splitId, participantId, txHash);
+      const idempotencyKey = service.generateIdempotencyKey(
+        splitId,
+        participantId,
+        txHash,
+      );
 
       // No existing payment with idempotency key
       mockQueryRunner.manager.findOne
@@ -214,11 +235,23 @@ describe("PaymentProcessorService Concurrency Tests", () => {
     });
 
     it("should generate consistent idempotency key", () => {
-      const key1 = service.generateIdempotencyKey("split-1", "participant-1", "tx-1");
-      const key2 = service.generateIdempotencyKey("split-1", "participant-1", "tx-1");
+      const key1 = service.generateIdempotencyKey(
+        "split-1",
+        "participant-1",
+        "tx-1",
+      );
+      const key2 = service.generateIdempotencyKey(
+        "split-1",
+        "participant-1",
+        "tx-1",
+      );
       expect(key1).toBe(key2);
 
-      const key3 = service.generateIdempotencyKey("split-2", "participant-1", "tx-1");
+      const key3 = service.generateIdempotencyKey(
+        "split-2",
+        "participant-1",
+        "tx-1",
+      );
       expect(key1).not.toBe(key3);
     });
   });
@@ -256,11 +289,30 @@ describe("PaymentProcessorService Concurrency Tests", () => {
       mockQueryRunner.manager.findOne
         .mockResolvedValueOnce(null) // idempotency key
         .mockResolvedValueOnce(null) // txHash
-        .mockResolvedValueOnce({ id: "participant-456", splitId: "split-123", amountOwed: 100, amountPaid: 0, userId: "user-1", status: "pending" }) // participant
-        .mockResolvedValueOnce({ id: "split-123", totalAmount: 100, isFrozen: false }); // split
+        .mockResolvedValueOnce({
+          id: "participant-456",
+          splitId: "split-123",
+          amountOwed: 100,
+          amountPaid: 0,
+          userId: "user-1",
+          status: "pending",
+        }) // participant
+        .mockResolvedValueOnce({
+          id: "split-123",
+          totalAmount: 100,
+          isFrozen: false,
+        }); // split
 
-      mockQueryRunner.manager.find
-        .mockResolvedValueOnce([{ id: "participant-456", amountPaid: 0, amountOwed: 100 }]); // participants for split update
+      // Also mock split lookup during updateSplitAmountPaidTransactional
+      mockQueryRunner.manager.findOne.mockResolvedValueOnce({
+        id: "split-123",
+        totalAmount: 100,
+        isFrozen: false,
+      });
+
+      mockQueryRunner.manager.find.mockResolvedValueOnce([
+        { id: "participant-456", amountPaid: 0, amountOwed: 100 },
+      ]); // participants for split update
 
       // Execute
       const result = await service.processPaymentSubmission({
@@ -287,12 +339,14 @@ describe("PaymentProcessorService Concurrency Tests", () => {
         settlementStatus: PaymentSettlementStatus.CONFIRMED,
       };
 
-      jest.spyOn(paymentRepository, "findOne").mockResolvedValue(payment as any);
+      jest
+        .spyOn(paymentRepository, "findOne")
+        .mockResolvedValue(payment as any);
 
       // Execute
-      await expect(service.retryPayment("payment-123", "new-tx-hash")).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.retryPayment("payment-123", "new-tx-hash"),
+      ).rejects.toThrow(ConflictException);
     });
   });
 });
@@ -328,6 +382,18 @@ describe("PaymentReconciliationService Tests", () => {
           },
         },
         {
+          provide: getQueueToken("payment-reconciliation"),
+          useValue: {
+            add: jest.fn(),
+          },
+        },
+        {
+          provide: getQueueToken("payment-settlement"),
+          useValue: {
+            add: jest.fn(),
+          },
+        },
+        {
           provide: StellarService,
           useValue: mockStellarService,
         },
@@ -338,8 +404,12 @@ describe("PaymentReconciliationService Tests", () => {
       ],
     }).compile();
 
-    service = module.get<PaymentReconciliationService>(PaymentReconciliationService);
-    paymentRepository = module.get<Repository<Payment>>(getRepositoryToken(Payment));
+    service = module.get<PaymentReconciliationService>(
+      PaymentReconciliationService,
+    );
+    paymentRepository = module.get<Repository<Payment>>(
+      getRepositoryToken(Payment),
+    );
     stellarService = module.get<StellarService>(StellarService);
   });
 
@@ -368,8 +438,12 @@ describe("PaymentReconciliationService Tests", () => {
         timestamp: "2024-01-01T00:00:00Z",
       });
 
-      jest.spyOn(paymentRepository, "findOne").mockResolvedValue(payment as any);
-      jest.spyOn(paymentRepository, "update").mockResolvedValue({ affected: 1 } as any);
+      jest
+        .spyOn(paymentRepository, "findOne")
+        .mockResolvedValue(payment as any);
+      jest
+        .spyOn(paymentRepository, "update")
+        .mockResolvedValue({ affected: 1 } as any);
 
       // Execute
       const result = await service.reconcilePayment("payment-123");
@@ -399,8 +473,12 @@ describe("PaymentReconciliationService Tests", () => {
         timestamp: "2024-01-01T00:00:00Z",
       });
 
-      jest.spyOn(paymentRepository, "findOne").mockResolvedValue(payment as any);
-      jest.spyOn(paymentRepository, "update").mockResolvedValue({ affected: 1 } as any);
+      jest
+        .spyOn(paymentRepository, "findOne")
+        .mockResolvedValue(payment as any);
+      jest
+        .spyOn(paymentRepository, "update")
+        .mockResolvedValue({ affected: 1 } as any);
 
       // Execute
       const result = await service.reconcilePayment("payment-123");
@@ -420,10 +498,16 @@ describe("PaymentReconciliationService Tests", () => {
         participantId: "participant-456",
       };
 
-      mockStellarService.verifyTransaction.mockRejectedValue(new Error("Network error"));
+      mockStellarService.verifyTransaction.mockRejectedValue(
+        new Error("Network error"),
+      );
 
-      jest.spyOn(paymentRepository, "findOne").mockResolvedValue(payment as any);
-      jest.spyOn(paymentRepository, "update").mockResolvedValue({ affected: 1 } as any);
+      jest
+        .spyOn(paymentRepository, "findOne")
+        .mockResolvedValue(payment as any);
+      jest
+        .spyOn(paymentRepository, "update")
+        .mockResolvedValue({ affected: 1 } as any);
 
       // Execute
       const result = await service.reconcilePayment("payment-123");
@@ -444,8 +528,12 @@ describe("PaymentReconciliationService Tests", () => {
         lastSettlementCheck: new Date(Date.now() - 90 * 60 * 1000), // 90 minutes ago
       };
 
-      jest.spyOn(paymentRepository, "find").mockResolvedValue([stalePayment] as any);
-      jest.spyOn(paymentRepository, "update").mockResolvedValue({ affected: 1 } as any);
+      jest
+        .spyOn(paymentRepository, "find")
+        .mockResolvedValue([stalePayment] as any);
+      jest
+        .spyOn(paymentRepository, "update")
+        .mockResolvedValue({ affected: 1 } as any);
 
       // Execute - manual call to detectStalePayments
       // In a real test we'd use TestScheduler or manual invocation
@@ -468,7 +556,8 @@ describe("PaymentReconciliationService Tests", () => {
   describe("Statistics Tests", () => {
     it("should return correct reconciliation stats", async () => {
       // Setup
-      jest.spyOn(paymentRepository, "count")
+      jest
+        .spyOn(paymentRepository, "count")
         .mockResolvedValueOnce(100) // total
         .mockResolvedValueOnce(20) // submitted
         .mockResolvedValueOnce(70) // confirmed

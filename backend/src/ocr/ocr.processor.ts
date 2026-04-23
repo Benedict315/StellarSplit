@@ -3,7 +3,7 @@ import { Job } from "bull";
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { OcrJob, OcrJobStatus } from "../entities/ocr-job.entity";
+import { OcrJob, OcrJobStatus } from "./entities/ocr-job.entity";
 import { OcrService } from "./ocr.service";
 
 /**
@@ -23,7 +23,7 @@ export interface OcrJobData {
  * OCR Queue Processor using Bull
  * Handles async OCR job processing with retries
  */
-@Processor('ocr')
+@Processor("ocr")
 @Injectable()
 export class OcrProcessor {
   private readonly logger = new Logger(OcrProcessor.name);
@@ -41,13 +41,23 @@ export class OcrProcessor {
     concurrency: 3, // Process up to 3 jobs concurrently
   })
   async processOcrJob(job: Job<OcrJobData>): Promise<void> {
-    const { jobId, imageUrl, imageBuffer, itemId, splitId, uploadedBy, originalFilename } = job.data;
+    const {
+      jobId,
+      imageUrl,
+      imageBuffer,
+      itemId,
+      splitId,
+      uploadedBy,
+      originalFilename,
+    } = job.data;
 
     this.logger.log(`Processing OCR job ${jobId}`);
 
     try {
       // Update job status to processing
-      const ocrJob = await this.ocrJobRepository.findOne({ where: { id: jobId } });
+      const ocrJob = await this.ocrJobRepository.findOne({
+        where: { id: jobId },
+      });
       if (!ocrJob) {
         this.logger.error(`OCR Job ${jobId} not found in database`);
         return;
@@ -56,23 +66,25 @@ export class OcrProcessor {
       ocrJob.status = OcrJobStatus.PROCESSING;
       ocrJob.progress = 10;
       ocrJob.startedAt = new Date();
-      ocrJob.queueJobId = job.id;
+      ocrJob.queueJobId = String(job.id);
       await this.ocrJobRepository.save(ocrJob);
 
       // Get the image buffer
       let imageBufferData: Buffer;
       if (imageBuffer) {
-        imageBufferData = Buffer.from(imageBuffer, 'base64');
+        imageBufferData = Buffer.from(imageBuffer, "base64");
       } else if (imageUrl) {
         // Fetch image from URL
         const response = await fetch(imageUrl);
         if (!response.ok) {
-          throw new Error(`Failed to fetch image from URL: ${response.statusText}`);
+          throw new Error(
+            `Failed to fetch image from URL: ${response.statusText}`,
+          );
         }
         const arrayBuffer = await response.arrayBuffer();
         imageBufferData = Buffer.from(arrayBuffer);
       } else {
-        throw new Error('No image data provided');
+        throw new Error("No image data provided");
       }
 
       // Update progress
@@ -89,7 +101,7 @@ export class OcrProcessor {
       const parsedReceipt = await this.ocrService.scanReceipt(imageBufferData);
 
       ocrJob.progress = 90;
-      
+
       // Store results
       ocrJob.status = OcrJobStatus.COMPLETED;
       ocrJob.progress = 100;
@@ -109,23 +121,28 @@ export class OcrProcessor {
 
       await this.ocrJobRepository.save(ocrJob);
 
-      this.logger.log(`OCR job ${jobId} completed with confidence ${parsedReceipt.confidence.toFixed(2)}`);
+      this.logger.log(
+        `OCR job ${jobId} completed with confidence ${parsedReceipt.confidence.toFixed(2)}`,
+      );
     } catch (error) {
       this.logger.error(`OCR job ${jobId} failed:`, error);
 
       // Update job with error
-      const ocrJob = await this.ocrJobRepository.findOne({ where: { id: jobId } });
+      const ocrJob = await this.ocrJobRepository.findOne({
+        where: { id: jobId },
+      });
       if (ocrJob) {
         ocrJob.status = OcrJobStatus.FAILED;
-        ocrJob.errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        ocrJob.errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
         ocrJob.retryCount += 1;
-        
+
         // If retries are still available, the job will be retried by Bull
         // If max retries reached, mark as failed permanently
         if (ocrJob.retryCount >= ocrJob.maxRetries) {
           this.logger.error(`OCR job ${jobId} exceeded max retries`);
         }
-        
+
         await this.ocrJobRepository.save(ocrJob);
       }
 

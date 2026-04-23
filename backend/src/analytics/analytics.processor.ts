@@ -261,7 +261,7 @@ export class AnalyticsProcessor {
         report.fileName = fileName;
         try {
           await fs.promises.unlink(filePath);
-        } catch (_) {}
+        } catch {}
 
         await this.reportsRepository.save(report);
         this.logger.debug(`Export uploaded to s3://${bucket}/${key}`);

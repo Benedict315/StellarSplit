@@ -17,10 +17,20 @@ import {
 import { ReceiptParserResults } from './ReceiptParserResults';
 import type { ParsedItem } from './ParsedItemEditor';
 import {
-  createManualReviewItems,
-  simulateReceiptOcr,
-  type ReceiptOcrProgress,
-} from '../../utils/receiptOcr';
+  createReceiptOcrProvider,
+  receiptOcrStrategyFromEnv,
+  type ReceiptOcrProvider,
+} from '../../services/receiptOcrProvider';
+import * as api from '../../utils/api-client';
+
+const defaultReceiptOcrProvider = createReceiptOcrProvider({
+  strategy: receiptOcrStrategyFromEnv,
+  deps: {
+    uploadReceiptForSplit: api.uploadReceiptForSplit,
+    fetchReceiptOcrData: api.fetchReceiptOcrData,
+    fetchReceiptSignedUrl: api.fetchReceiptSignedUrl,
+  },
+});
 
 type FlowStep =
   | 'choose'
@@ -34,6 +44,7 @@ type FlowStep =
 type CaptureMethod = 'camera' | 'upload' | 'manual';
 
 interface ReceiptFlowDraft {
+  receiptId?: string;
   step: FlowStep;
   method: CaptureMethod;
   imageUrl?: string;
@@ -60,6 +71,8 @@ interface ReceiptCaptureFlowProps {
   splitId: string;
   currency: string;
   onApply: (result: ReceiptCaptureFlowResult) => void;
+  /** Injected OCR boundary (defaults to env-driven transport or simulate strategy). */
+  ocrProvider?: ReceiptOcrProvider;
 }
 
 const createEmptyDraft = (): ReceiptFlowDraft => ({
@@ -119,6 +132,7 @@ export const ReceiptCaptureFlow = ({
   splitId,
   currency,
   onApply,
+  ocrProvider = defaultReceiptOcrProvider,
 }: ReceiptCaptureFlowProps) => {
   const storageKey = useMemo(
     () => `stellarsplit-receipt-draft:${splitId}`,
@@ -164,15 +178,13 @@ export const ReceiptCaptureFlow = ({
   const beginProcessing = async ({
     method,
     file,
-    manualEntry,
   }: {
     method: CaptureMethod;
-    file?: File;
-    manualEntry?: ManualEntryData;
+    file: File;
   }) => {
     try {
-      const imageUrl =
-        file && file.type.startsWith('image/')
+      const localPreviewUrl =
+        file.type.startsWith('image/')
           ? await readFileAsDataUrl(file)
           : undefined;
 
@@ -180,45 +192,36 @@ export const ReceiptCaptureFlow = ({
         ...current,
         step: 'processing',
         method,
-        imageUrl: imageUrl ?? current.imageUrl,
-        imageName: file?.name ?? current.imageName,
-        manualEntry,
-        progress: 0,
-        progressLabel: 'Preparing your receipt for OCR',
+        imageUrl: localPreviewUrl ?? current.imageUrl,
+        imageName: file.name,
+        progress: 5,
+        progressLabel: 'Preparing receipt',
         error: undefined,
       }));
 
-      const result = await simulateReceiptOcr(
-        {
-          fileName: file?.name,
-          manualEntry,
-        },
-        (progressUpdate: ReceiptOcrProgress) => {
-          setDraft((current) => ({
+      const processed = await ocrProvider.processUploadedReceiptFile({
+        splitId,
+        file,
+        localPreviewUrl,
+        onProgress: (progress) => {
+          updateDraft((current) => ({
             ...current,
-            step: 'processing',
-            method,
-            imageUrl: imageUrl ?? current.imageUrl,
-            imageName: file?.name ?? current.imageName,
-            manualEntry,
-            progress: progressUpdate.progress,
-            progressLabel: progressUpdate.label,
-            error: undefined,
-            updatedAt: new Date().toISOString(),
+            progress: progress.progress,
+            progressLabel: progress.label,
           }));
-        }
-      );
+        },
+      });
 
       updateDraft((current) => ({
         ...current,
+        receiptId: processed.receiptId ?? current.receiptId,
         step: 'review',
         method,
-        imageUrl: imageUrl ?? current.imageUrl,
-        imageName: file?.name ?? current.imageName,
-        manualEntry,
-        merchant: result.merchant,
-        receiptTotal: result.receiptTotal,
-        items: result.items,
+        imageUrl: processed.signedPreviewUrl ?? current.imageUrl,
+        imageName: file.name,
+        merchant: processed.merchant,
+        receiptTotal: processed.receiptTotal,
+        items: processed.items,
         progress: 100,
         progressLabel: undefined,
         error: undefined,
@@ -229,9 +232,10 @@ export const ReceiptCaptureFlow = ({
         step: method,
         method,
         error:
-          error instanceof Error
+          api.getApiErrorMessage(error) ||
+          (error instanceof Error
             ? error.message
-            : 'We could not prepare this receipt. Please try again.',
+            : 'We could not prepare this receipt. Please try again.'),
         progress: 0,
         progressLabel: undefined,
       }));
@@ -252,20 +256,24 @@ export const ReceiptCaptureFlow = ({
   };
 
   const handleManualSubmit = (manualEntry: ManualEntryData) => {
-    const draftItems = createManualReviewItems(manualEntry);
+    updateDraft((current) => {
+      const built = ocrProvider.applyManualEntry(manualEntry, {
+        previousMerchant: current.merchant,
+      });
 
-    updateDraft((current) => ({
-      ...current,
-      step: 'review',
-      method: 'manual',
-      items: draftItems,
-      receiptTotal: Number.parseFloat(manualEntry.amount),
-      merchant: manualEntry.merchant.trim() || current.merchant || 'Manual receipt',
-      manualEntry,
-      progress: 100,
-      progressLabel: undefined,
-      error: undefined,
-    }));
+      return {
+        ...current,
+        step: 'review',
+        method: 'manual',
+        items: built.items,
+        receiptTotal: built.receiptTotal,
+        merchant: built.merchant,
+        manualEntry: built.manualEntry,
+        progress: 100,
+        progressLabel: undefined,
+        error: undefined,
+      };
+    });
   };
 
   const handleApply = (items: ParsedItem[]) => {

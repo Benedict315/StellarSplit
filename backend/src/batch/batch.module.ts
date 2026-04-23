@@ -12,10 +12,12 @@ import { PaymentBatchProcessor } from "./processors/payment-batch.processor";
 import { ScheduledBatchProcessor } from "./processors/scheduled-batch.processor";
 import { BatchProgressService } from "./batch-progress.service";
 import { BatchEventsService } from "./batch-events.service";
+import { PaymentsModule } from "../payments/payments.module";
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([BatchJob, BatchOperation]),
+    PaymentsModule,
     BullModule.registerQueueAsync(
       {
         name: "batch_splits",

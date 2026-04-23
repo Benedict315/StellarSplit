@@ -8,11 +8,13 @@ import { BatchJob, BatchJobStatus } from "../entities/batch-job.entity";
 import { BatchOperation, BatchOperationStatus } from "../entities/batch-operation.entity";
 import { BatchProgressService } from "../batch-progress.service";
 import { BatchJobData } from "../batch.service";
+import { PaymentsService } from "../../payments/payments.service";
 
 interface PaymentPayload {
   splitId: string;
   participantId: string;
   stellarTxHash: string;
+  idempotencyKey?: string;
 }
 
 @Processor("batch_payments")
@@ -25,6 +27,7 @@ export class PaymentBatchProcessor {
     @InjectRepository(BatchOperation)
     private batchOperationRepository: Repository<BatchOperation>,
     private batchProgressService: BatchProgressService,
+    private paymentsService: PaymentsService,
   ) {}
 
   @Process("process")
@@ -33,14 +36,12 @@ export class PaymentBatchProcessor {
 
     this.logger.log(`Starting payment batch ${batchId}`);
 
-    // Update batch status
     await this.batchJobRepository.update(batchId, {
       status: BatchJobStatus.PROCESSING,
       started_at: new Date(),
     });
 
     try {
-      // Get all pending operations
       const operations = await this.batchOperationRepository.find({
         where: {
           batch_id: batchId,
@@ -54,25 +55,28 @@ export class PaymentBatchProcessor {
         return;
       }
 
-      // Process in chunks
       for (let i = 0; i < operations.length; i += chunkSize) {
         const chunk = operations.slice(i, i + chunkSize);
-        
-        this.logger.debug(`Processing chunk ${Math.floor(i / chunkSize) + 1} of ${Math.ceil(operations.length / chunkSize)}`);
 
-        // Process chunk with concurrency limit
+        this.logger.debug(
+          `Processing chunk ${Math.floor(i / chunkSize) + 1} of ${Math.ceil(operations.length / chunkSize)}`,
+        );
+
         await this.processChunk(chunk, concurrency);
 
-        // Update job progress
         const progress = Math.round(((i + chunk.length) / operations.length) * 100);
         await job.progress(progress);
       }
 
+      await this.batchJobRepository.update(batchId, {
+        status: BatchJobStatus.COMPLETED,
+        completed_at: new Date(),
+      });
+
       this.logger.log(`Completed payment batch ${batchId}`);
     } catch (error: any) {
       this.logger.error(`Failed to process payment batch ${batchId}: ${error.message}`);
-      
-      // Update batch with error
+
       await this.batchJobRepository.update(batchId, {
         status: BatchJobStatus.FAILED,
         error_message: error.message,
@@ -94,17 +98,14 @@ export class PaymentBatchProcessor {
     const executing: Promise<void>[] = [];
 
     while (queue.length > 0 || executing.length > 0) {
-      // Start new operations up to concurrency limit
       while (executing.length < concurrency && queue.length > 0) {
         const operation = queue.shift()!;
         executing.push(this.processOperation(operation));
       }
 
-      // Wait for at least one operation to complete
       if (executing.length > 0) {
         await Promise.race(executing);
-        
-        // Remove completed promises
+
         for (let i = executing.length - 1; i >= 0; i--) {
           const promise = executing[i];
           const result = await Promise.race([
@@ -118,33 +119,39 @@ export class PaymentBatchProcessor {
       }
     }
 
-    // Wait for all remaining operations
     await Promise.all(executing);
   }
 
   /**
-   * Process a single payment operation
+   * Process a single payment operation via the real payment service
    */
   private async processOperation(operation: BatchOperation): Promise<void> {
     try {
-      // Mark as started
       await this.batchProgressService.markOperationStarted(operation.id);
 
       const payload = operation.payload as PaymentPayload;
-
-      // Validate payload
       this.validatePayload(payload);
 
-      // Simulate payment processing (replace with actual service call)
-      const result = await this.processPayment(payload);
+      const result = await this.paymentsService.submitPayment(
+        payload.splitId,
+        payload.participantId,
+        payload.stellarTxHash,
+        payload.idempotencyKey,
+      );
 
-      // Mark as completed
-      await this.batchProgressService.markOperationCompleted(operation.id, result);
+      await this.batchProgressService.markOperationCompleted(operation.id, {
+        paymentId: result.paymentId,
+        splitId: payload.splitId,
+        participantId: payload.participantId,
+        stellarTxHash: payload.stellarTxHash,
+        isDuplicate: result.isDuplicate ?? false,
+        processedAt: new Date().toISOString(),
+      });
 
       this.logger.debug(`Completed payment operation ${operation.id}`);
     } catch (error: any) {
       this.logger.error(`Failed payment operation ${operation.id}: ${error.message}`);
-      
+
       await this.batchProgressService.markOperationFailed(
         operation.id,
         error.message,
@@ -154,7 +161,7 @@ export class PaymentBatchProcessor {
   }
 
   /**
-   * Validate payment payload
+   * Validate payment payload before submission
    */
   private validatePayload(payload: PaymentPayload): void {
     if (!payload.splitId) {
@@ -168,32 +175,5 @@ export class PaymentBatchProcessor {
     if (!payload.stellarTxHash || payload.stellarTxHash.length < 10) {
       throw new Error("Invalid Stellar transaction hash");
     }
-  }
-
-  /**
-   * Process a payment (placeholder for actual implementation)
-   */
-  private async processPayment(payload: PaymentPayload): Promise<Record<string, any>> {
-    // TODO: Integrate with actual payment processing service
-    // For now, simulate successful processing
-    
-    // Add small delay to simulate processing
-    await this.delay(100);
-    
-    return {
-      paymentId: `payment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      splitId: payload.splitId,
-      participantId: payload.participantId,
-      stellarTxHash: payload.stellarTxHash,
-      status: "confirmed",
-      processedAt: new Date().toISOString(),
-    };
-  }
-
-  /**
-   * Delay helper for rate limiting
-   */
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

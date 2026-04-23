@@ -6,12 +6,54 @@ import 'reflect-metadata';
 import { AppModule } from './app.module';
 import { GlobalHttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TypeOrmExceptionFilter } from './common/filters/typeorm-exception.filter';
+import { validateEnvironment, Environment } from './config/env.validation';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
-  // Enable global validation pipe
+  // ============================================================
+  // STRICT ENVIRONMENT VALIDATION (run before any other startup)
+  // ============================================================
+  const nodeEnv = configService.get<string>('NODE_ENV') || 'development';
+  
+  // Build config object for validation
+  const envConfig = {
+    NODE_ENV: nodeEnv,
+    DATABASE_HOST: configService.get<string>('DATABASE_HOST'),
+    DATABASE_PORT: configService.get<number>('DATABASE_PORT'),
+    DATABASE_USERNAME: configService.get<string>('DATABASE_USERNAME'),
+    DATABASE_PASSWORD: configService.get<string>('DATABASE_PASSWORD'),
+    DATABASE_NAME: configService.get<string>('DATABASE_NAME'),
+    JWT_SECRET: configService.get<string>('JWT_SECRET'),
+    REDIS_URL: configService.get<string>('REDIS_URL'),
+    DATABASE_SSL: configService.get<string>('DATABASE_SSL'),
+    DEBUG: configService.get<string>('DEBUG'),
+    CORS_ORIGIN: configService.get<string>('CORS_ORIGIN'),
+  };
+
+  // Validate environment configuration
+  const validation = validateEnvironment(envConfig);
+  
+  if (!validation.isValid) {
+    const errorMsg = `Environment validation failed:\n${validation.errors.join('\n')}`;
+    console.error('❌ ' + errorMsg);
+    
+    // In production, fail fast on missing required config
+    if (nodeEnv === Environment.PRODUCTION) {
+      process.exit(1);
+    }
+  }
+
+  // Log warnings
+  if (validation.warnings.length > 0) {
+    console.warn('⚠️ Environment warnings:');
+    validation.warnings.forEach(w => console.warn('  - ' + w));
+  }
+
+  // ============================================================
+  // ENABLE GLOBAL VALIDATION PIPE
+  // ============================================================
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -20,7 +62,7 @@ async function bootstrap() {
     }),
   );
 
-  // Global filters
+  // Global exception filters
   app.useGlobalFilters(new GlobalHttpExceptionFilter(), new TypeOrmExceptionFilter());
 
   // Enable URI versioning: /api/v1/...
@@ -32,11 +74,21 @@ async function bootstrap() {
   // Set global API prefix
   app.setGlobalPrefix('api');
 
-  // Enable CORS
-  app.enableCors({
-    origin: true,
+  // ============================================================
+  // SAFER CORS DEFAULTS FOR PRODUCTION
+  // ============================================================
+  const corsOptions = {
+    origin: nodeEnv === Environment.PRODUCTION 
+      ? configService.get<string[]>('ALLOWED_ORIGINS') || []  // Explicit whitelist in production
+      : configService.get<string>('CORS_ORIGIN') || true,       // Permissive in dev
     credentials: true,
-  });
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    maxAge: 86400, // 24 hours preflight cache
+  };
+  
+  // Security middleware and production hardening are centralized in SecurityModule.
+  app.enableCors(corsOptions);
 
   // Configure Swagger
   const appConfig = configService.get('app');

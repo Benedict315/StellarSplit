@@ -1,6 +1,22 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ReceiptCaptureFlow } from './ReceiptCaptureFlow';
+import { createReceiptOcrProvider } from '../../services/receiptOcrProvider';
+
+const uploadReceiptForSplitMock = vi.fn();
+const fetchReceiptOcrDataMock = vi.fn();
+const fetchReceiptSignedUrlMock = vi.fn();
+
+const transportOcrProvider = () =>
+  createReceiptOcrProvider({
+    strategy: 'transport',
+    deps: {
+      uploadReceiptForSplit: uploadReceiptForSplitMock,
+      fetchReceiptOcrData: fetchReceiptOcrDataMock,
+      fetchReceiptSignedUrl: fetchReceiptSignedUrlMock,
+    },
+    poll: { intervalMs: 5, maxAttempts: 3 },
+  });
 
 vi.mock('../CameraCapture', () => ({
   CameraCapture: ({
@@ -113,70 +129,55 @@ vi.mock('./ReceiptParserResults', () => ({
   ),
 }));
 
-vi.mock('../../utils/receiptOcr', () => ({
-  createManualReviewItems: (manualEntry: { amount: string; merchant: string }) => [
-    {
-      id: 'manual-item-1',
-      name: manualEntry.merchant || 'Manual receipt',
-      quantity: 1,
-      price: Number.parseFloat(manualEntry.amount),
-      confidence: 100,
-    },
-  ],
-  simulateReceiptOcr: vi.fn(async (request, onProgress) => {
-    onProgress?.({ progress: 45, label: 'Scanning now' });
-    onProgress?.({ progress: 100, label: 'Done' });
-
-    if (request.manualEntry) {
-      return {
-        merchant: request.manualEntry.merchant,
-        receiptTotal: Number.parseFloat(request.manualEntry.amount),
-        items: [
-          {
-            id: 'manual-item-1',
-            name: request.manualEntry.merchant,
-            quantity: 1,
-            price: Number.parseFloat(request.manualEntry.amount),
-            confidence: 100,
-          },
-        ],
-      };
-    }
-
-    return {
-      merchant: 'Corner Grocery',
-      receiptTotal: 31.5,
-      items: [
-        {
-          id: 'ocr-item-1',
-          name: 'Fresh Produce',
-          quantity: 1,
-          price: 18.5,
-          confidence: 91,
-        },
-        {
-          id: 'ocr-item-2',
-          name: 'Snacks',
-          quantity: 1,
-          price: 13,
-          confidence: 72,
-        },
-      ],
-    };
-  }),
-}));
+vi.mock('../../utils/api-client', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../utils/api-client')>();
+  return {
+    ...actual,
+    getApiErrorMessage: (error: unknown) =>
+      error instanceof Error ? error.message : 'Receipt request failed',
+  };
+});
 
 describe('ReceiptCaptureFlow', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    uploadReceiptForSplitMock.mockResolvedValue({
+      id: 'receipt-123',
+    });
+    fetchReceiptOcrDataMock.mockResolvedValue({
+      processed: true,
+      data: {
+        total: 31.5,
+        confidence: 0.91,
+        items: [
+          {
+            name: 'Fresh Produce',
+            quantity: 1,
+            price: 18.5,
+          },
+          {
+            name: 'Snacks',
+            quantity: 1,
+            price: 13,
+          },
+        ],
+      },
+    });
+    fetchReceiptSignedUrlMock.mockResolvedValue('https://example.com/receipt.jpg');
   });
 
   it('lets the user upload a receipt and apply reviewed OCR items', async () => {
     const onApply = vi.fn();
 
     render(
-      <ReceiptCaptureFlow splitId="split-123" currency="USD" onApply={onApply} />
+      <ReceiptCaptureFlow
+        splitId="split-123"
+        currency="USD"
+        onApply={onApply}
+        ocrProvider={transportOcrProvider()}
+      />
     );
 
     fireEvent.click(screen.getByRole('button', { name: /upload receipt/i }));
@@ -190,7 +191,7 @@ describe('ReceiptCaptureFlow', () => {
 
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({
-        merchant: 'Corner Grocery',
+        merchant: 'grocery-receipt',
         receiptTotal: 31.5,
         items: expect.arrayContaining([
           expect.objectContaining({ name: 'Fresh Produce' }),
@@ -203,7 +204,12 @@ describe('ReceiptCaptureFlow', () => {
     const onApply = vi.fn();
 
     const { unmount } = render(
-      <ReceiptCaptureFlow splitId="split-abc" currency="USD" onApply={onApply} />
+      <ReceiptCaptureFlow
+        splitId="split-abc"
+        currency="USD"
+        onApply={onApply}
+        ocrProvider={transportOcrProvider()}
+      />
     );
 
     fireEvent.click(screen.getByRole('button', { name: /upload receipt/i }));
@@ -216,7 +222,12 @@ describe('ReceiptCaptureFlow', () => {
     unmount();
 
     render(
-      <ReceiptCaptureFlow splitId="split-abc" currency="USD" onApply={onApply} />
+      <ReceiptCaptureFlow
+        splitId="split-abc"
+        currency="USD"
+        onApply={onApply}
+        ocrProvider={transportOcrProvider()}
+      />
     );
 
     expect(screen.getByText(/corner store/i)).toBeInTheDocument();

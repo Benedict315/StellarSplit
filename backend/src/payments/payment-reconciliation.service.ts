@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, LessThan, MoreThan, In } from "typeorm";
 import { Cron, CronExpression } from "@nestjs/schedule";
@@ -64,6 +64,7 @@ export class PaymentReconciliationService implements OnModuleInit {
     private readonly reconciliationQueue: Queue,
     @InjectQueue("payment-settlement")
     private readonly settlementQueue: Queue,
+    @Optional()
     private readonly customConfig?: Partial<ReconciliationConfig>,
   ) {
     this.config = { ...DEFAULT_CONFIG, ...customConfig };
@@ -116,10 +117,7 @@ export class PaymentReconciliationService implements OnModuleInit {
         );
       }
     } catch (error) {
-      this.logger.error(
-        "Error in scheduled payment reconciliation",
-        error,
-      );
+      this.logger.error("Error in scheduled payment reconciliation", error);
     }
   }
 
@@ -127,7 +125,7 @@ export class PaymentReconciliationService implements OnModuleInit {
    * Cron job to detect and mark stale payments
    * Runs every 15 minutes to find payments that have been pending too long
    */
-  @Cron('0 */15 * * * *')
+  @Cron("0 */15 * * * *")
   async detectStalePayments(): Promise<void> {
     this.logger.log("Starting stale payment detection");
 
@@ -148,7 +146,10 @@ export class PaymentReconciliationService implements OnModuleInit {
       this.logger.log(`Found ${stalePayments.length} stale payments`);
 
       for (const payment of stalePayments) {
-        await this.markPaymentForReview(payment.id, "Payment stale - no confirmation after threshold");
+        await this.markPaymentForReview(
+          payment.id,
+          "Payment stale - no confirmation after threshold",
+        );
       }
     } catch (error) {
       this.logger.error("Error in stale payment detection", error);
@@ -205,9 +206,7 @@ export class PaymentReconciliationService implements OnModuleInit {
 
       if (!verification) {
         // Transaction not found on chain yet - could be pending
-        this.logger.warn(
-          `Transaction not found on chain: ${payment.txHash}`,
-        );
+        this.logger.warn(`Transaction not found on chain: ${payment.txHash}`);
         return {
           paymentId,
           txHash: payment.txHash,
@@ -353,10 +352,7 @@ export class PaymentReconciliationService implements OnModuleInit {
   /**
    * Mark a payment for manual review
    */
-  async markPaymentForReview(
-    paymentId: string,
-    reason: string,
-  ): Promise<void> {
+  async markPaymentForReview(paymentId: string, reason: string): Promise<void> {
     this.logger.warn(`Marking payment ${paymentId} for review: ${reason}`);
 
     await this.paymentRepository.update(paymentId, {
@@ -473,9 +469,7 @@ export class PaymentReconciliationService implements OnModuleInit {
         break;
     }
 
-    this.logger.log(
-      `Payment ${paymentId} resolved from review: ${resolution}`,
-    );
+    this.logger.log(`Payment ${paymentId} resolved from review: ${resolution}`);
   }
 
   /**

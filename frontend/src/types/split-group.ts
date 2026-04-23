@@ -23,6 +23,18 @@ export interface Group {
   lastActivityAt: Date;
 }
 
+export interface SplitRequest {
+  groupId: string;
+  members: Member[];
+  amount: number;
+  description: string;
+}
+
+export interface ApiResponse<T> {
+  data: T;
+  error?: string;
+}
+
 export interface Split {
   id: string;
   groupId: string;

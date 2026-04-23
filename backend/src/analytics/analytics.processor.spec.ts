@@ -27,7 +27,6 @@ jest.mock("./reports.entity", () => ({
 }));
 
 const { AnalyticsProcessor } = require("./analytics.processor");
-const fs = require("fs");
 
 jest.mock("fs", () => ({
   promises: {

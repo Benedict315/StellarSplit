@@ -10,6 +10,7 @@ import {
 } from "./dto/create-batch.dto";
 import { BatchStatusDto } from "./dto/batch-status.dto";
 import { BatchJobStatus, BatchJobType } from "./entities/batch-job.entity";
+import { ReceiptPolicyService } from "../receipts/receipt-policy.service";
 
 describe("BatchController", () => {
   let controller: BatchController;
@@ -47,6 +48,14 @@ describe("BatchController", () => {
             canManageGroupMembers: jest.fn().mockResolvedValue(true),
             canCreateGroupSplit: jest.fn().mockResolvedValue(true),
             filterAccessibleSplits: jest.fn().mockResolvedValue([]),
+          },
+        },
+        {
+          provide: ReceiptPolicyService,
+          useValue: {
+            canCreateReceipt: jest.fn().mockResolvedValue(true),
+            canAccessReceipt: jest.fn().mockResolvedValue(true),
+            canDeleteReceipt: jest.fn().mockResolvedValue(true),
           },
         },
       ],

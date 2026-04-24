@@ -1,4 +1,9 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
+import type {
+  NextFunction,
+  Request,
+  Response,
+} from 'express-serve-static-core';
 import helmet from 'helmet';
 import xssClean from 'xss-clean';
 import csrf from 'csurf';
@@ -15,13 +20,12 @@ export class SecurityMiddleware implements NestMiddleware {
   private readonly rateLimitHandler = rateLimit({ windowMs: 60 * 1000, max: 100 });
   private readonly csrfHandler = csrf({ cookie: true, ignoreMethods: ['GET', 'HEAD', 'OPTIONS'] });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  use(req: any, res: any, next: (err?: any) => void): void {
+  use(req: Request, res: Response, next: NextFunction): void {
     this.helmetHandler(req, res, (helmetError?: unknown) => {
-      if (helmetError) return next(helmetError);
+      if (helmetError) return next(helmetError as Error);
 
       this.xssCleanHandler(req, res, (xssError?: unknown) => {
-        if (xssError) return next(xssError);
+        if (xssError) return next(xssError as Error);
 
         if (this.isProduction) {
           res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -31,7 +35,7 @@ export class SecurityMiddleware implements NestMiddleware {
         }
 
         this.rateLimitHandler(req, res, (rateLimitError?: unknown) => {
-          if (rateLimitError) return next(rateLimitError);
+          if (rateLimitError) return next(rateLimitError as Error);
           if (this.enableCsrf) {
             this.csrfHandler(req, res, next);
           } else {

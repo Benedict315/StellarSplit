@@ -5,6 +5,7 @@ import { InvitationsService } from "./invitations.service";
 import { AuthorizationService } from "../auth/services/authorization.service";
 import { AuthorizationGuard } from "../auth/guards/authorization.guard";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
+import { ReceiptPolicyService } from "../receipts/receipt-policy.service";
 import { Invitation } from "./invitation.entity";
 import { CreateInvitationDto } from "./dto/create-invitation.dto";
 import { JoinInvitationDto } from "./dto/join-invitation.dto";
@@ -74,6 +75,14 @@ describe("InvitationsController", () => {
             canManageGroupMembers: jest.fn().mockResolvedValue(true),
             canCreateGroupSplit: jest.fn().mockResolvedValue(true),
             filterAccessibleSplits: jest.fn().mockResolvedValue([]),
+          },
+        },
+        {
+          provide: ReceiptPolicyService,
+          useValue: {
+            canCreateReceipt: jest.fn().mockResolvedValue(true),
+            canAccessReceipt: jest.fn().mockResolvedValue(true),
+            canDeleteReceipt: jest.fn().mockResolvedValue(true),
           },
         },
       ],

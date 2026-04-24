@@ -11,6 +11,7 @@ import { RecurringSplitsScheduler } from "./recurring-splits.scheduler";
 import { RecurringSplit, RecurrenceFrequency } from "./recurring-split.entity";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { AuthorizationService } from "../auth/services/authorization.service";
+import { ReceiptPolicyService } from "../receipts/receipt-policy.service";
 
 describe("RecurringSplitsController", () => {
   let controller: RecurringSplitsController;
@@ -61,6 +62,14 @@ describe("RecurringSplitsController", () => {
             canManageGroupMembers: jest.fn().mockResolvedValue(true),
             canCreateGroupSplit: jest.fn().mockResolvedValue(true),
             filterAccessibleSplits: jest.fn().mockResolvedValue([]),
+          },
+        },
+        {
+          provide: ReceiptPolicyService,
+          useValue: {
+            canCreateReceipt: jest.fn().mockResolvedValue(true),
+            canAccessReceipt: jest.fn().mockResolvedValue(true),
+            canDeleteReceipt: jest.fn().mockResolvedValue(true),
           },
         },
       ],

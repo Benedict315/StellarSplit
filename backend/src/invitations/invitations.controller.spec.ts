@@ -3,6 +3,8 @@ import { HttpStatus } from "@nestjs/common";
 import { InvitationsController } from "./invitations.controller";
 import { InvitationsService } from "./invitations.service";
 import { AuthorizationService } from "../auth/services/authorization.service";
+import { AuthorizationGuard } from "../auth/guards/authorization.guard";
+import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { ReceiptPolicyService } from "../receipts/receipt-policy.service";
 import { Invitation } from "./invitation.entity";
 import { CreateInvitationDto } from "./dto/create-invitation.dto";
@@ -84,7 +86,10 @@ describe("InvitationsController", () => {
           },
         },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard).useValue({ canActivate: () => true })
+      .overrideGuard(AuthorizationGuard).useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<InvitationsController>(InvitationsController);
     service = module.get<InvitationsService>(InvitationsService);

@@ -15,21 +15,10 @@ export class SecurityMiddleware implements NestMiddleware {
   private readonly enableCsrf =
     process.env.SECURITY_CSRF?.toLowerCase() === 'true';
 
-  private readonly helmetHandler = helmet({
-    contentSecurityPolicy: false,
-  });
-
+  private readonly helmetHandler = helmet({ contentSecurityPolicy: false });
   private readonly xssCleanHandler = xssClean();
-
-  private readonly rateLimitHandler = rateLimit({
-    windowMs: 60 * 1000,
-    max: 100,
-  });
-
-  private readonly csrfHandler = csrf({
-    cookie: true,
-    ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
-  });
+  private readonly rateLimitHandler = rateLimit({ windowMs: 60 * 1000, max: 100 });
+  private readonly csrfHandler = csrf({ cookie: true, ignoreMethods: ['GET', 'HEAD', 'OPTIONS'] });
 
   use(req: Request, res: Response, next: NextFunction): void {
     this.helmetHandler(req, res, (helmetError?: unknown) => {
@@ -42,15 +31,11 @@ export class SecurityMiddleware implements NestMiddleware {
           res.setHeader('X-Content-Type-Options', 'nosniff');
           res.setHeader('X-Frame-Options', 'DENY');
           res.setHeader('X-XSS-Protection', '1; mode=block');
-          res.setHeader(
-            'Strict-Transport-Security',
-            'max-age=31536000; includeSubDomains',
-          );
+          res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
         }
 
         this.rateLimitHandler(req, res, (rateLimitError?: unknown) => {
           if (rateLimitError) return next(rateLimitError as Error);
-
           if (this.enableCsrf) {
             this.csrfHandler(req, res, next);
           } else {

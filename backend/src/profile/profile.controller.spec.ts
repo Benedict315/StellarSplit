@@ -85,7 +85,7 @@ describe('ProfileController', () => {
       const req = {
         user: { walletAddress, id: 'user-id' },
       };
-      const result = await controller.update(walletAddress, dto, req);
+      const result = await controller.update(walletAddress, dto, req as any);
       expect(result).toEqual(mockProfile);
       expect(profileService.update).toHaveBeenCalledWith(walletAddress, dto);
     });

@@ -3,6 +3,9 @@ const mockDecorator = () => () => {};
 jest.mock("@nestjs/bull", () => ({
   Processor: mockDecorator,
   Process: mockDecorator,
+  OnQueueFailed: mockDecorator,
+  OnQueueCompleted: mockDecorator,
+  OnQueueActive: mockDecorator,
 }));
 
 jest.mock("typeorm", () => ({

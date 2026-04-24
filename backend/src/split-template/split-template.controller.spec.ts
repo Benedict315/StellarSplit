@@ -1,4 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { AuthorizationGuard } from "../auth/guards/authorization.guard";
+import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { SplitTemplateController } from "./split-template.controller";
 import { SplitTemplateService } from "./split-template.service";
 import { CreateSplitTemplateDto } from "./dto/create-split-template.dto";
@@ -45,7 +47,10 @@ describe("SplitTemplateController", () => {
                     useValue: mockSplitTemplateService,
                 },
             ],
-        }).compile();
+        })
+            .overrideGuard(JwtAuthGuard).useValue({ canActivate: () => true })
+            .overrideGuard(AuthorizationGuard).useValue({ canActivate: () => true })
+            .compile();
 
         controller = module.get<SplitTemplateController>(
             SplitTemplateController,

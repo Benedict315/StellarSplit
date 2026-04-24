@@ -113,6 +113,7 @@ export class AuditService {
     actorIp?: string;
     previousState?: Record<string, unknown>;
     newState?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
     description?: string;
     reason?: string;
     severity?: AuditSeverity;

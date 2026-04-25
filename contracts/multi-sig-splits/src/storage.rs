@@ -227,3 +227,54 @@ pub fn update_split_status(env: &Env, split_id: &String, status: &MultisigStatus
     }
     save_split(env, &split);
 }
+
+// ============================================================================
+// Execution Intent Tracking
+// ============================================================================
+
+/// Storage key for execution intents
+const INTENT: Symbol = symbol_short!("INTENT");
+
+fn intent_key(split_id: &String) -> (Symbol, String) {
+    (INTENT, split_id.clone())
+}
+
+/// Record an execution intent for a split.
+/// Creates a new internal action record that tracks what action will be executed.
+pub fn record_execution_intent(
+    env: &Env,
+    split_id: &String,
+    action: &String,
+) -> ExecutionIntent {
+    let now = env.ledger().timestamp();
+    let intent = ExecutionIntent {
+        intent_id: split_id.clone(),
+        split_id: split_id.clone(),
+        action: action.clone(),
+        recorded_at: now,
+        executed_at: 0,
+        is_executed: false,
+    };
+
+    env.storage()
+        .persistent()
+        .set(&intent_key(split_id), &intent);
+
+    intent
+}
+
+/// Get an execution intent for a split if it exists.
+pub fn get_execution_intent(env: &Env, split_id: &String) -> Option<ExecutionIntent> {
+    env.storage().persistent().get(&intent_key(split_id))
+}
+
+/// Mark an execution intent as executed with the current timestamp.
+pub fn mark_intent_executed(env: &Env, split_id: &String) {
+    if let Some(mut intent) = get_execution_intent(env, split_id) {
+        intent.executed_at = env.ledger().timestamp();
+        intent.is_executed = true;
+        env.storage()
+            .persistent()
+            .set(&intent_key(split_id), &intent);
+    }
+}

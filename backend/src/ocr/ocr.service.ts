@@ -1,55 +1,50 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { createWorker, Worker } from "tesseract.js";
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import sharp from "sharp";
 import { ReceiptParser, ParsedReceipt } from "./parsers/receipt-parser";
+// #479: Replace single lazy worker with a managed pool
+import { OcrWorkerPool } from "./ocr-worker.pool";
 
 @Injectable()
-export class OcrService {
+export class OcrService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OcrService.name);
-  private worker: Worker | null = null;
-  private isInitialized = false;
+  private readonly pool = new OcrWorkerPool();
 
   constructor(private readonly receiptParser: ReceiptParser) {}
 
+  // ── Lifecycle (#479) ──────────────────────────────────────────────────────
+
+  async onModuleInit(): Promise<void> {
+    await this.pool.initialize({ poolSize: 2, language: "eng" });
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.pool.shutdown();
+  }
+
   /**
-   * Initialize Tesseract worker
+   * @deprecated Use `onModuleInit` lifecycle instead.
+   * Kept for backwards compatibility with existing callers.
    */
   async initialize(): Promise<void> {
-    if (this.isInitialized && this.worker) {
-      return;
-    }
-
-    try {
-      this.logger.log("Initializing Tesseract.js worker...");
-      this.worker = await createWorker("eng", 1, {
-        logger: (m) => {
-          if (m.status === "recognizing text") {
-            this.logger.debug(`OCR Progress: ${Math.round(m.progress * 100)}%`);
-          }
-        },
-      });
-      this.isInitialized = true;
-      this.logger.log("Tesseract.js worker initialized successfully");
-    } catch (error) {
-      this.logger.error("Failed to initialize Tesseract.js worker", error);
-      throw error;
+    if (!this.pool.poolSize) {
+      await this.pool.initialize({ poolSize: 2, language: "eng" });
     }
   }
 
   /**
-   * Process receipt image and extract structured data
+   * Process receipt image and extract structured data.
+   * Acquires a worker from the pool, executes OCR, then releases the worker.
+   * Concurrent calls are safely queued by the pool.
    */
   async scanReceipt(imageBuffer: Buffer): Promise<ParsedReceipt> {
-    if (!this.isInitialized || !this.worker) {
-      await this.initialize();
-    }
+    const worker = await this.pool.acquire();
 
     try {
       // Preprocess image
       const processedImage = await this.preprocessImage(imageBuffer);
 
       // Perform OCR
-      const { data } = await this.worker!.recognize(processedImage);
+      const { data } = await worker.recognize(processedImage);
       const ocrText = data.text;
       const ocrConfidence = data.confidence / 100; // Convert to 0-1 scale
 
@@ -76,6 +71,9 @@ export class OcrService {
     } catch (error) {
       this.logger.error("Failed to scan receipt", error);
       throw new Error(`OCR processing failed: ${error}`);
+    } finally {
+      // Always release the worker back to the pool (#479)
+      this.pool.release(worker);
     }
   }
 
@@ -122,14 +120,10 @@ export class OcrService {
   }
 
   /**
-   * Cleanup worker resources
+   * Cleanup worker resources.
+   * @deprecated Prefer `onModuleDestroy` lifecycle hook (#479).
    */
   async cleanup(): Promise<void> {
-    if (this.worker) {
-      await this.worker.terminate();
-      this.worker = null;
-      this.isInitialized = false;
-      this.logger.log("Tesseract.js worker terminated");
-    }
+    await this.pool.shutdown();
   }
 }
